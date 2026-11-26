@@ -1,0 +1,67 @@
+# --- Build artifacts ---
+bin/
+obj/
+out/
+artifacts/
+*.binlog
+
+# --- Uploads / runtime data ---
+App_Data/
+[Aa]pp_[Dd]ata/
+wwwroot/media/
+*.mdf
+*.ldf
+*.mdf.tmp
+
+# --- Local databases ---
+*.db
+*.db-shm
+*.db-wal
+*.bak
+
+# --- Secrets & configuration with credentials (never commit) ---
+# The repository ships appsettings.Development.example.json and
+# appsettings.Production.example.json (placeholders only). Every real
+# configuration file stays local and is ignored here:
+#   copy src/HamzetWasl.Api/appsettings.Development.example.json
+#        src/HamzetWasl.Api/appsettings.Development.json
+# Real secrets come from environment variables, user secrets or a secret store.
+appsettings.Development.json
+appsettings.Production.json
+appsettings.*.Local.json
+appsettings.Local.json
+*.env
+.env
+secrets.json
+*.pfx
+*.pem
+*.key
+*.crt
+*.p12
+*.snk
+
+# --- User state / IDE ---
+.vs/
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+dotnet-user-secrets/
+
+# --- Machine specific desktop shortcuts (regenerate with tools\create-shortcuts.ps1) ---
+*.lnk
+
+# --- Test & coverage results ---
+TestResults/
+[Ll]og/
+logs/
+*.log
+
+# --- OS ---
+Thumbs.db
+.DS_Store
+desktop.ini

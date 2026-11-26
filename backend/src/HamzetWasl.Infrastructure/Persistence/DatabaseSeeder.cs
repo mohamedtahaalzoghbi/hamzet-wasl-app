@@ -1,0 +1,248 @@
+using HamzetWasl.Application.Metadata;
+using HamzetWasl.Domain.Constants;
+using HamzetWasl.Domain.Entities;
+using HamzetWasl.Domain.Rules;
+using HamzetWasl.Infrastructure.Configuration;
+using HamzetWasl.Infrastructure.Identity;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+namespace HamzetWasl.Infrastructure.Persistence;
+
+public sealed class DatabaseSeeder
+{
+    private readonly HamzetWaslDbContext _db;
+    private readonly UserManager<AppUser> _users;
+    private readonly SeedOptions _seed;
+    private readonly ILogger<DatabaseSeeder> _logger;
+
+    public DatabaseSeeder(
+        HamzetWaslDbContext db,
+        UserManager<AppUser> users,
+        IOptions<SeedOptions> seed,
+        ILogger<DatabaseSeeder> logger)
+    {
+        _db = db;
+        _users = users;
+        _seed = seed.Value;
+        _logger = logger;
+    }
+
+    public async Task SeedAsync(CancellationToken ct = default)
+    {
+        await SeedRolesAsync(ct);
+        await SeedLookupsAsync(ct);
+        await SeedGeoAsync(ct);
+        await SeedTrainingAsync(ct);
+        await SeedAdminAsync(ct);
+        await SeedInterviewSlotsAsync(ct);
+    }
+
+    /// <summary>
+    /// يملأ GOVERNORATE/AREA من <see cref="MetaCatalog"/> عند أول تشغيل. لا يحذف ولا يعطّل
+    /// أي صف موجود، حتى لا يمسح تعديلات الإدارة؛ يضيف فقط ما ينقص بالكود.
+    /// </summary>
+    private async Task SeedGeoAsync(CancellationToken ct)
+    {
+        var governorates = await _db.Governorates.Include(g => g.Areas).ToListAsync(ct);
+
+        foreach (var item in MetaCatalog.Governorates)
+        {
+            var governorate = governorates.FirstOrDefault(g =>
+                string.Equals(g.Code, item.Key, StringComparison.OrdinalIgnoreCase));
+
+            if (governorate is null)
+            {
+                governorate = new Governorate
+                {
+                    Code = item.Key,
+                    NameAr = item.NameAr,
+                    IsActive = true
+                };
+                _db.Governorates.Add(governorate);
+            }
+
+            foreach (var area in item.Areas)
+            {
+                if (governorate.Areas.All(a =>
+                        !string.Equals(a.Code, area.Key, StringComparison.OrdinalIgnoreCase)))
+                {
+                    governorate.Areas.Add(new Area
+                    {
+                        Code = area.Key,
+                        NameAr = area.NameAr,
+                        IsActive = true
+                    });
+                }
+            }
+        }
+
+        await _db.SaveChangesAsync(ct);
+    }
+
+    private async Task SeedRolesAsync(CancellationToken ct)
+    {
+        var existing = await _db.AccountRoles.Select(r => r.RoleName).ToListAsync(ct);
+        foreach (var role in RoleNames.All.Where(r => !existing.Contains(r, StringComparer.Ordinal)))
+        {
+            _db.AccountRoles.Add(new AccountRole { RoleName = role });
+        }
+
+        await _db.SaveChangesAsync(ct);
+    }
+
+    private async Task SeedLookupsAsync(CancellationToken ct)
+    {
+        var needTypes = await _db.NeedTypes.Select(n => n.Name).ToListAsync(ct);
+        foreach (var item in MetaCatalog.NeedTypeCatalog.Where(n => !needTypes.Contains(n.Key, StringComparer.Ordinal)))
+        {
+            _db.NeedTypes.Add(new NeedType { Name = item.Key });
+        }
+
+        var skills = await _db.Skills.Select(s => s.Name).ToListAsync(ct);
+        foreach (var item in MetaCatalog.StarterSkills.Where(s => !skills.Contains(s.NameAr, StringComparer.Ordinal)))
+        {
+            _db.Skills.Add(new Skill { Name = item.NameAr });
+        }
+
+        var interests = await _db.Interests.Select(i => i.Name).ToListAsync(ct);
+        foreach (var item in MetaCatalog.StarterInterests.Where(i => !interests.Contains(i.NameAr, StringComparer.Ordinal)))
+        {
+            _db.Interests.Add(new Interest { Name = item.NameAr });
+        }
+
+        var accommodations = await _db.Accommodations.Select(a => a.Name).ToListAsync(ct);
+        foreach (var item in MetaCatalog.StarterAccommodations.Where(a => !accommodations.Contains(a.NameAr, StringComparer.Ordinal)))
+        {
+            _db.Accommodations.Add(new Accommodation { Name = item.NameAr, Category = item.Category });
+        }
+
+        await _db.SaveChangesAsync(ct);
+    }
+
+    private async Task SeedTrainingAsync(CancellationToken ct)
+    {
+        if (await _db.TrainingModules.AnyAsync(ct)) return;
+        _db.TrainingModules.Add(new TrainingModule
+        {
+            ModuleId = Guid.NewGuid(),
+            Title = "التدريب التعريفي للمتطوعين",
+            Version = "1.0"
+        });
+        await _db.SaveChangesAsync(ct);
+    }
+
+    private async Task SeedAdminAsync(CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(_seed.AdminEmail) || string.IsNullOrWhiteSpace(_seed.AdminPassword))
+        {
+            _logger.LogWarning("Admin seed skipped: Seed:AdminEmail and Seed:AdminPassword are not configured.");
+            return;
+        }
+
+        var email = _seed.AdminEmail.Trim().ToLowerInvariant();
+        var existing = await _db.UserAccounts.Include(a => a.Role).FirstOrDefaultAsync(a => a.Email == email, ct);
+        if (existing is not null)
+        {
+            if (existing.Role.RoleName != RoleNames.Admin)
+            {
+                _logger.LogWarning("Admin seed skipped: an account with the admin address exists with role {Role}.",
+                    existing.Role.RoleName);
+            }
+
+            return;
+        }
+
+        var adminRole = await _db.AccountRoles.SingleAsync(r => r.RoleName == RoleNames.Admin, ct);
+        var phone = PhoneNumberNormalizer.TryNormalize(_seed.AdminPhone);
+        var userId = Guid.NewGuid();
+
+        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+
+        var account = new UserAccount
+        {
+            UserId = userId,
+            RoleId = adminRole.RoleId,
+            Email = email,
+            EmailVerified = true,
+            Phone = phone,
+            PhoneVerified = false,
+            AccountStatus = AccountStatuses.Active,
+            CreatedAt = DateTime.UtcNow
+        };
+        _db.UserAccounts.Add(account);
+        _db.UserProfiles.Add(new UserProfile
+        {
+            UserId = userId,
+            DisplayName = string.IsNullOrWhiteSpace(_seed.AdminName) ? "مدير النظام" : _seed.AdminName,
+            Visibility = ProfileVisibilities.Private
+        });
+        await _db.SaveChangesAsync(ct);
+
+        var appUser = new AppUser
+        {
+            Id = userId,
+            UserName = email,
+            Email = email,
+            EmailConfirmed = true,
+            PhoneNumber = phone,
+            PhoneNumberConfirmed = false,
+            UserAccount = account
+        };
+
+        var result = await _users.CreateAsync(appUser, _seed.AdminPassword);
+        if (!result.Succeeded)
+        {
+            await transaction.RollbackAsync(ct);
+            _logger.LogError("Admin seed failed: {Errors}", string.Join("; ", result.Errors.Select(e => e.Description)));
+            return;
+        }
+
+        await transaction.CommitAsync(ct);
+        _logger.LogInformation("Admin account seeded.");
+    }
+
+    private async Task SeedInterviewSlotsAsync(CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        if (await _db.InterviewSlots.AnyAsync(
+                s => s.StartsAt > now && s.Status == InterviewSlotStatuses.Available, ct))
+        {
+            return;
+        }
+
+        var admin = await _db.UserAccounts
+            .Include(a => a.Role)
+            .FirstOrDefaultAsync(a => a.Role.RoleName == RoleNames.Admin, ct);
+        if (admin is null)
+        {
+            return;
+        }
+
+        // Seed starter future 30-minute slots across the next 5 days (10:00, 11:00, 14:00, 15:00, 16:00 Cairo / UTC+2)
+        // so volunteers can immediately test booking an interview on fresh deployments.
+        int[] utcHours = [8, 9, 12, 13, 14];
+        var baseDate = now.Date.AddDays(1);
+        for (var day = 0; day < 5; day++)
+        {
+            var date = baseDate.AddDays(day);
+            foreach (var hour in utcHours)
+            {
+                _db.InterviewSlots.Add(new InterviewSlot
+                {
+                    InterviewSlotId = Guid.NewGuid(),
+                    ReviewerId = admin.UserId,
+                    StartsAt = new DateTime(date.Year, date.Month, date.Day, hour, 0, 0, DateTimeKind.Utc),
+                    DurationMinutes = 30,
+                    Status = InterviewSlotStatuses.Available
+                });
+            }
+        }
+
+        await _db.SaveChangesAsync(ct);
+        _logger.LogInformation("Starter interview slots seeded.");
+    }
+}

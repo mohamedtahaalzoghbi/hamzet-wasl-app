@@ -1,0 +1,9 @@
+build/
+.dart_tool/
+.idea/
+*.iml
+bin/
+obj/
+.vs/
+App_Data/
+logs/

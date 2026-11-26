@@ -1,0 +1,94 @@
+namespace HamzetWasl.Infrastructure.Configuration;
+
+public sealed class JwtOptions
+{
+    public const string SectionName = "Jwt";
+    public string Issuer { get; set; } = "HamzetWasl";
+    public string Audience { get; set; } = "HamzetWasl.Clients";
+    public string SigningKey { get; set; } = string.Empty;
+    public int AccessTokenMinutes { get; set; } = 15;
+    public int RefreshTokenDays { get; set; } = 30;
+    public int GoogleTicketMinutes { get; set; } = 10;
+}
+
+public sealed class StorageOptions
+{
+    public const string SectionName = "Storage";
+    public string RootPath { get; set; } = "App_Data/uploads";
+    public string PublicBaseUrl { get; set; } = "/media";
+    public string SigningKey { get; set; } = string.Empty;
+    public int SignedUrlMinutes { get; set; } = 10;
+}
+
+public sealed class OtpOptions
+{
+    public const string SectionName = "Otp";
+    public int Length { get; set; } = 6;
+    public int ExpiryMinutes { get; set; } = 10;
+    public int MaxAttempts { get; set; } = 5;
+    public int ResendCooldownSeconds { get; set; } = 60;
+
+    /// <summary>Cooldown before another code may be sent to the same phone or email,
+    /// regardless of which account or pending registration asked for it.</summary>
+    public int TargetCooldownSeconds { get; set; } = 60;
+    public string HashKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Optional fixed numeric OTP for demo/testing deployments where no real SMS/Email gateway
+    /// is configured (set via <c>Otp__FixedCode</c>, e.g. <c>123456</c>). Leave empty in real
+    /// production so every code is cryptographically random.
+    /// </summary>
+    public string? FixedCode { get; set; }
+}
+
+public sealed class RetentionOptions
+{
+    public const string SectionName = "Retention";
+    public int VerificationEvidenceDays { get; set; } = 90;
+    public int OrganizationDocumentsDaysAfterDeletion { get; set; } = 30;
+    public int SosAlertsDays { get; set; } = 30;
+    public int AuditYears { get; set; } = 5;
+    public int CleanupIntervalHours { get; set; } = 24;
+}
+
+public sealed class SeedOptions
+{
+    public const string SectionName = "Seed";
+    public string? AdminEmail { get; set; }
+    public string? AdminPhone { get; set; }
+    public string? AdminPassword { get; set; }
+    public string? AdminName { get; set; } = "مدير النظام";
+}
+
+public sealed class GoogleOptions
+{
+    public const string SectionName = "Google";
+    public string? ClientId { get; set; }
+}
+
+/// <summary>
+/// Limits of the fixed window rate limiter. They are configuration so a deployment (or a
+/// test host) can tune them without touching the pipeline.
+/// </summary>
+public sealed class RateLimitingOptions
+{
+    public const string SectionName = "RateLimiting";
+
+    /// <summary>Requests per minute for the authentication endpoints, per identity or IP.</summary>
+    public int AuthPermitLimit { get; set; } = 20;
+
+    /// <summary>Window of the authentication limit, in minutes.</summary>
+    public int AuthWindowMinutes { get; set; } = 1;
+
+    /// <summary>Requests per window for the OTP endpoints, per user.</summary>
+    public int OtpPermitLimit { get; set; } = 6;
+
+    /// <summary>Window of the OTP limit, in minutes.</summary>
+    public int OtpWindowMinutes { get; set; } = 10;
+
+    /// <summary>Requests per window for the upload endpoints, per user.</summary>
+    public int UploadPermitLimit { get; set; } = 30;
+
+    /// <summary>Window of the upload limit, in hours.</summary>
+    public int UploadWindowHours { get; set; } = 1;
+}
